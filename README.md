@@ -1,0 +1,1 @@
+# nanodb-hash-storage
