@@ -2,3 +2,6 @@ build
 datafiles
 test_datafiles
 
+.idea
+
+*.iml
