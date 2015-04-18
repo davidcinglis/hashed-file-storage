@@ -25,6 +25,20 @@ public enum DBFileType {
 
 
     /**
+     * Represents an extendable hash tuple file that keeps tuples in
+     * buckets based on a hashed key.
+     */
+    EXTENDABLE_HASH_FILE(3),
+
+
+    /**
+     * Represents a linear hash tuple file that keeps tuples in buckets
+     * according to two hash values on a given key.
+     */
+    LINEAR_HASH_FILE(4),
+
+
+    /**
      * Represents a transaction-state file used for write-ahead logging and
      * recovery.
      */
