@@ -2,9 +2,8 @@ package edu.caltech.nanodb.storage;
 
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
+import java.lang.IllegalArgumentException;
+import java.util.*;
 
 import org.apache.log4j.Logger;
 
@@ -66,6 +65,7 @@ public class IndexedTableManager implements TableManager {
 
         int pageSize = StorageManager.getCurrentPageSize();
         String storageType = "heap";
+        ArrayList<Integer> hashColumns = new ArrayList<Integer>();
 
         if (properties != null) {
             logger.info("Using command properties " + properties);
@@ -73,9 +73,20 @@ public class IndexedTableManager implements TableManager {
             pageSize = properties.getInt("pagesize", pageSize);
             storageType = properties.getString("storage", storageType);
 
+            String hashString = properties.getString("hashkey", null);
+            if (hashString != null) {
+                List<String> hashList = Arrays.asList(
+                        hashString.split("\\s*,\\s*"));
+                for (String s : hashList) {
+                    hashColumns.add(Integer.valueOf(s));
+                }
+            }
+
+
             HashSet<String> names = new HashSet<String>(properties.getNames());
             names.remove("pagesize");
             names.remove("storage");
+            names.remove("hashkey");
             if (!names.isEmpty()) {
                 throw new IllegalArgumentException("Unrecognized property " +
                     "name(s) specified:  " + names);
@@ -91,6 +102,12 @@ public class IndexedTableManager implements TableManager {
         else if ("btree".equals(storageType)) {
             type = DBFileType.BTREE_TUPLE_FILE;
         }
+        else if ("lin-hash".equals(storageType)) {
+            type = DBFileType.LINEAR_HASH_FILE;
+            if (hashColumns.isEmpty()) {
+                throw new IllegalArgumentException("Hash storage must specify a key!");
+            }
+        }
         else {
             throw new IllegalArgumentException("Unrecognized table file " +
                 "type:  " + storageType);
@@ -105,7 +122,17 @@ public class IndexedTableManager implements TableManager {
 
         // Now, initialize it to be a tuple file with the specified type and
         // schema.
-        TupleFile tupleFile = tupleFileManager.createTupleFile(dbFile, schema);
+        TupleFile tupleFile;
+
+        if (type == DBFileType.LINEAR_HASH_FILE) {
+            DBFile overflow = fileManager.createDBFile("ovflw_" + tblFileName, DBFileType.OVERFLOW_FILE, pageSize);
+
+            HashTupleFileManager hashManager = (HashTupleFileManager) tupleFileManager;
+            tupleFile = hashManager.createTupleFile(dbFile, schema, hashColumns, overflow);
+        }
+        else {
+            tupleFile = tupleFileManager.createTupleFile(dbFile, schema);
+        }
 
         // Cache this table since it's now considered "open".
         TableInfo tableInfo = new TableInfo(tableName, tupleFile);

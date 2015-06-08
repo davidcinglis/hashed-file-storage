@@ -24,6 +24,9 @@ import edu.caltech.nanodb.storage.btreefile.BTreeTupleFileManager;
 import edu.caltech.nanodb.storage.heapfile.HeapTupleFileManager;
 import edu.caltech.nanodb.transactions.TransactionManager;
 
+import edu.caltech.nanodb.storage.linhash.LinHashTupleFileManager;
+import edu.caltech.nanodb.storage.overflowfile.OverflowTupleFileManager;
+
 
 /**
  *
@@ -241,6 +244,12 @@ public class StorageManager {
 
         tupleFileManagers.put(DBFileType.BTREE_TUPLE_FILE,
             new BTreeTupleFileManager(this));
+
+        tupleFileManagers.put(DBFileType.LINEAR_HASH_FILE,
+                new LinHashTupleFileManager(this));
+
+        tupleFileManagers.put(DBFileType.OVERFLOW_FILE,
+                new OverflowTupleFileManager(this));
 
         if (TransactionManager.isEnabled()) {
             logger.info("Initializing transaction manager.");

@@ -1,7 +1,9 @@
 package edu.caltech.nanodb.storage.linhash;
 
 import java.io.IOException;
+import java.lang.IllegalArgumentException;
 import java.lang.Override;
+import java.util.*;
 
 import org.apache.log4j.Logger;
 
@@ -16,8 +18,10 @@ import edu.caltech.nanodb.storage.SchemaWriter;
 import edu.caltech.nanodb.storage.StatsWriter;
 import edu.caltech.nanodb.storage.StorageManager;
 import edu.caltech.nanodb.storage.TupleFileManager;
+import edu.caltech.nanodb.storage.HashTupleFileManager;
+import edu.caltech.nanodb.storage.FileManagerImpl;
 
-public class LinHashTupleFileManager implements TupleFileManager {
+public class LinHashTupleFileManager implements HashTupleFileManager {
     private static Logger logger = Logger.getLogger(LinHashTupleFileManager.class);
 
     private StorageManager storageManager;
@@ -29,8 +33,17 @@ public class LinHashTupleFileManager implements TupleFileManager {
         this.storageManager = storageManager;
     }
 
-    @Override
     public TupleFile createTupleFile(DBFile dbFile, TableSchema schema)
+            throws IOException{
+        throw new IllegalArgumentException("Must specify hash key columns.");
+    }
+
+    public TupleFile createTupleFile(DBFile dbFile, TableSchema schema, List<Integer> hashColumns)
+        throws IOException{
+        throw new IllegalArgumentException("Must specify overflow file.");
+    }
+
+    public TupleFile createTupleFile(DBFile dbFile, TableSchema schema, List<Integer> hashColumns, DBFile overflowFile)
         throws IOException {
 
         logger.info(String.format(
@@ -39,8 +52,32 @@ public class LinHashTupleFileManager implements TupleFileManager {
 
         TableStats stats = new TableStats(schema.numColumns());
         LinHashTupleFile tupleFile = new LinHashTupleFile(storageManager, this,
-                dbFile, schema, stats);
+                dbFile, schema, stats, hashColumns, overflowFile);
         saveMetadata(tupleFile);
+
+        // Initialization for main file.
+        DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
+
+        // Initialize the next bucket to split to the first bucket.
+        headerPage.writeShort(HeaderPage.getNextOffset(headerPage), 0);
+
+        // Initialize the level to 0.
+        headerPage.writeShort(HeaderPage.getLevelOffset(headerPage), 0);
+
+        // Initialize the buckets in the tuple file
+        tupleFile.initialize();
+
+        /*
+        //Initialization for overflow file.
+        headerPage = storageManager.loadDBPage(overflowFile, 0);
+
+        // Initialize the next bucket to split to the first bucket.
+        headerPage.writeShort(HeaderPage.getNextOffset(headerPage), 1);
+
+        // Initialize the level to 0.
+        headerPage.writeShort(HeaderPage.getLevelOffset(headerPage), 0);
+        */
+
         return tupleFile;
     }
 
@@ -59,11 +96,20 @@ public class LinHashTupleFileManager implements TupleFileManager {
         SchemaWriter schemaWriter = new SchemaWriter();
         TableSchema schema = schemaWriter.readTableSchema(hpReader);
 
+        // Read in hash column spec
+        ArrayList<Integer> hashColumns = new ArrayList<Integer>();
+        for (int i = 0; i < HeaderPage.getHashColumnsSize(headerPage); i+=2) {
+            hashColumns.add((int) hpReader.readShort());
+        }
+
         // Read in the statistics.
         StatsWriter statsWriter = new StatsWriter();
         TableStats stats = statsWriter.readTableStats(hpReader, schema);
 
-        return new LinHashTupleFile(storageManager, this, dbFile, schema, stats);
+        // Open the overflow file
+        DBFile overflow = storageManager.openDBFile("ovflw_" + dbFile.toString());
+
+        return new LinHashTupleFile(storageManager, this, dbFile, schema, stats, hashColumns, overflow);
     }
 
     @Override
@@ -80,14 +126,25 @@ public class LinHashTupleFileManager implements TupleFileManager {
                     "tupleFile must be an instance of LinHashTupleFile");
         }
 
+        LinHashTupleFile lhTupleFile = (LinHashTupleFile) tupleFile;
+
         DBFile dbFile = tupleFile.getDBFile();
 
         TableSchema schema = tupleFile.getSchema();
         TableStats stats = tupleFile.getStats();
+        List<Integer> hashColumns = lhTupleFile.getHashColumns();
+
+
+        // Grab header page for initialization
+        DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
+
+        // Initialize level and next values to 0
+        headerPage.writeShort(HeaderPage.getLevelOffset(headerPage), 0);
+        headerPage.writeShort(HeaderPage.getNextOffset(headerPage), 0);
+
 
         // Table schema is stored into the header page, so get it and prepare
         // to write out the schema information.
-        DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
         PageWriter hpWriter = new PageWriter(headerPage);
         // Skip past the page-size value.
         hpWriter.setPosition(HeaderPage.OFFSET_SCHEMA_START);
@@ -100,6 +157,13 @@ public class LinHashTupleFileManager implements TupleFileManager {
         int schemaEndPos = hpWriter.getPosition();
         int schemaSize = schemaEndPos - HeaderPage.OFFSET_SCHEMA_START;
         HeaderPage.setSchemaSize(headerPage, schemaSize);
+
+        // Store hashedColumns spec
+        for (int col : hashColumns) {
+            hpWriter.writeShort(col);
+        }
+        int hashColumnsEndPos = hpWriter.getPosition();
+        HeaderPage.setHashColumnsSize(headerPage, hashColumnsEndPos - schemaEndPos);
 
         // Write in empty statistics, so that the values are at least
         // initialized to something.

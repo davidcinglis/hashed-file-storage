@@ -18,7 +18,7 @@ public interface HashedTupleFile extends TupleFile {
      *
      * @return the column(s) that comprise the hash key in this tuple file.
      */
-    List<Expression> getKeySpec();
+    List<Integer> getKeySpec();
 
 
     /**

@@ -3,8 +3,14 @@ package edu.caltech.nanodb.plans;
 
 import java.io.IOException;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
+import edu.caltech.nanodb.expressions.*;
+import edu.caltech.nanodb.relations.Tuple;
+import edu.caltech.nanodb.storage.*;
+import edu.caltech.nanodb.storage.linhash.LinHashTupleFile;
 import org.apache.log4j.Logger;
 
 import edu.caltech.nanodb.indexes.IndexInfo;
@@ -12,19 +18,15 @@ import edu.caltech.nanodb.qeval.PlanCost;
 import edu.caltech.nanodb.qeval.SelectivityEstimator;
 import edu.caltech.nanodb.qeval.TableStats;
 import edu.caltech.nanodb.relations.TableInfo;
-import edu.caltech.nanodb.storage.FilePointer;
-import edu.caltech.nanodb.storage.TupleFile;
-import edu.caltech.nanodb.storage.InvalidFilePointerException;
-
-import edu.caltech.nanodb.expressions.Expression;
-import edu.caltech.nanodb.expressions.OrderByExpression;
 
 
 /**
  * <p>
  * A select plan-node that scans a tuple file, checking the optional predicate
  * against each tuple in the file.  Note that there are no optimizations used
- * if the tuple file is a sequential tuple file or a hashed tuple file.
+ * if the tuple file is a sequential tuple file. Hashed tuple files have some
+ * optimization, provided that the predicate applied to the file-scan contains
+ * equality comparisons on the hash key.
  * </p>
  * <p>
  * This plan node can also be used with indexes, when a "file-scan" is to be
@@ -64,6 +66,13 @@ public class FileScanNode extends SelectNode {
      */
     private FilePointer markedTuple;
 
+    /**
+     * The search key to use for scanning hash files, if applicable. This
+     * field will be null if no hash key can be used, otherwise it will be a
+     * TupleLiteral of the key value.
+     */
+    private Tuple key;
+
 
     private boolean jumpToMarkedTuple;
 
@@ -83,6 +92,7 @@ public class FileScanNode extends SelectNode {
 
         this.tableInfo = tableInfo;
         tupleFile = tableInfo.getTupleFile();
+        key = null;
     }
 
 
@@ -120,7 +130,7 @@ public class FileScanNode extends SelectNode {
             // We don't include the table-info or the index-info since each
             // table or index is in its own tuple file.
             return tupleFile.equals(other.tupleFile) &&
-                   predicate.equals(other.predicate);
+                    predicate.equals(other.predicate);
         }
 
         return false;
@@ -174,7 +184,7 @@ public class FileScanNode extends SelectNode {
         }
         else {
             throw new IllegalStateException("Both tableInfo and indexInfo " +
-                "are null!");
+                    "are null!");
         }
 
         if (predicate != null)
@@ -223,10 +233,56 @@ public class FileScanNode extends SelectNode {
 
     // Inherit javadocs from base class.
     public void prepare() {
-        // Grab the schema and statistics from the table file.
-
+        // Grab the schema and DBFile
         schema = tupleFile.getSchema();
+        DBFile dbFile = tupleFile.getDBFile();
 
+        // If we have an extendable hash file, check if we can optimize
+        if (dbFile.getType() == DBFileType.LINEAR_HASH_FILE &&
+                predicate != null) {
+            LinHashTupleFile hashFile = (LinHashTupleFile) tupleFile;
+
+            // Get the hash key columns
+            ArrayList<ColumnName> keyColNames = new ArrayList<>();
+            for (int i : hashFile.getHashColumns()) {
+                keyColNames.add(schema.getColumnInfo(i).getColumnName());
+            }
+
+            // Get predicate conjuncts and check if the predicate is on the
+            // hash key
+            ArrayList<Expression> conjuncts = new ArrayList<>();
+            PredicateUtils.collectConjuncts(predicate, conjuncts);
+            HashMap<ColumnName, Object> predicateValues = new HashMap<>();
+            for (Expression c : conjuncts) {
+                // We only want to look at equality operators
+                if (c instanceof CompareOperator &&
+                        ((CompareOperator) c).getType() ==
+                                CompareOperator.Type.EQUALS) {
+                    // Get column on left and literal on right
+                    ((CompareOperator) c).normalize();
+                    Expression left = ((CompareOperator) c).getLeftExpression();
+                    Expression right = ((CompareOperator) c).getRightExpression();
+                    if (left instanceof ColumnValue &&
+                            right instanceof LiteralValue) {
+                        // If the predicate conjunct in the right format, record it
+                        predicateValues.put(((ColumnValue) left).getColumnName(),
+                                right.evaluate(null));
+                    }
+                }
+            }
+
+            // If our predicate uses the whole hash key, construct a search key
+            // to use
+            if (predicateValues.keySet().containsAll(keyColNames)) {
+                TupleLiteral newKey = new TupleLiteral();
+                for (ColumnName name : keyColNames) {
+                    newKey.addValue(predicateValues.get(name));
+                }
+                key = newKey;
+            }
+        }
+
+        // Get table stats
         TableStats tableStats = tupleFile.getStats();
         stats = tableStats.getAllColumnStats();
 
@@ -235,7 +291,7 @@ public class FileScanNode extends SelectNode {
         float selectivity = 1.0f;
         if (predicate != null) {
             selectivity = SelectivityEstimator.estimateSelectivity(predicate,
-                schema, stats);
+                    schema, stats);
         }
 
         // Grab the left child's cost, then update the cost based on the
@@ -247,7 +303,7 @@ public class FileScanNode extends SelectNode {
         // The CPU cost will be proportional to the total number of tuples, not
         // the number of tuples we expect to output.
         cost = new PlanCost(numTuples, tableStats.avgTupleSize,
-            tableStats.numTuples, tableStats.numDataPages);
+                tableStats.numTuples, tableStats.numDataPages);
 
         // TODO:  We should also update the table statistics based on the
         //        predicate, but that's too complicated, so we'll leave them
@@ -284,7 +340,7 @@ public class FileScanNode extends SelectNode {
             }
             catch (InvalidFilePointerException e) {
                 throw new IOException(
-                    "Couldn't resume at previously marked tuple!", e);
+                        "Couldn't resume at previously marked tuple!", e);
             }
             jumpToMarkedTuple = false;
 
@@ -292,9 +348,21 @@ public class FileScanNode extends SelectNode {
         }
 
         if (currentTuple == null)
-            currentTuple = tupleFile.getFirstTuple();
+            // Use optimized scan if possible
+            if (key == null) {
+                currentTuple = tupleFile.getFirstTuple();
+            } else {
+                currentTuple = ((LinHashTupleFile)
+                        tupleFile).findFirstTupleEquals(key);
+            }
         else
-            currentTuple = tupleFile.getNextTuple(currentTuple);
+            // Use optimized scan if possible
+            if (key == null) {
+                currentTuple = tupleFile.getNextTuple(currentTuple);
+            } else {
+                currentTuple = ((LinHashTupleFile)
+                        tupleFile).findNextTupleEquals(currentTuple);
+            }
     }
 
 

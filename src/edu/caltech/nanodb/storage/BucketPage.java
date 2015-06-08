@@ -5,6 +5,8 @@ import org.apache.log4j.Logger;
 
 import edu.caltech.nanodb.storage.DBPage;
 
+import java.util.ArrayList;
+
 
 /**
  * This class provides the constants and operations necessary for manipulating
@@ -59,11 +61,12 @@ public class BucketPage {
      */
     public static void initNewPage(DBPage dbPage) {
         setNumSlots(dbPage, 0);
+        setNextBucket(dbPage, 0);
     }
 
 
     public static int getSlotOffset(int slot) {
-        return (1 + slot) * 2;
+        return (1 + slot) * 2 + Integer.SIZE;
     }
 
 
@@ -312,6 +315,7 @@ public class BucketPage {
         if (numSlots == 0)
             return;
 
+        ArrayList<Integer> offsets = new ArrayList<>();
         // Find the first occupied slot, and get its offset into prevOffset.
         int iSlot = -1;
         int prevSlot = -1;
@@ -320,6 +324,7 @@ public class BucketPage {
             iSlot++;
             prevSlot = iSlot;
             prevOffset = getSlotValue(dbPage, iSlot);
+            offsets.add(prevOffset);
         }
 
         while (iSlot + 1 < numSlots) {
@@ -329,6 +334,7 @@ public class BucketPage {
             while (iSlot + 1 < numSlots && offset == EMPTY_SLOT) {
                 iSlot++;
                 offset = getSlotValue(dbPage, iSlot);
+                offsets.add(offset);
             }
 
             if (iSlot < numSlots) {
@@ -344,6 +350,12 @@ public class BucketPage {
                 prevOffset = offset;
             }
         }
+        StringBuilder out = new StringBuilder();
+        for (Object o : offsets) {
+            out.append(o.toString());
+            out.append(",");
+        }
+        logger.info("Slots:" + out);
     }
 
 
@@ -462,7 +474,7 @@ public class BucketPage {
         int numSlots = getNumSlots(dbPage);
         for (int iSlot = 0; iSlot < numSlots; iSlot++) {
 
-            int slotOffset = dbPage.readUnsignedShort(2 * (iSlot + 1));
+            int slotOffset = getSlotValue(dbPage, iSlot);
             if (slotOffset != EMPTY_SLOT && slotOffset <= off) {
                 // Update this slot's offset.
                 slotOffset += len;
@@ -578,6 +590,8 @@ public class BucketPage {
         // tuple, or else insertTupleDataRange() will clobber the
         // slot-value of this tuple.
         setSlotValue(dbPage, slot, newTupleStart);
+
+        sanityCheck(dbPage);
 
         // Finally, return the slot-index of the new tuple.
         return slot;

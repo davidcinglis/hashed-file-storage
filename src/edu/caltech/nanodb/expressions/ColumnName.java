@@ -53,8 +53,8 @@ public class ColumnName implements Comparable<ColumnName>, Cloneable {
         if (obj instanceof ColumnName) {
             ColumnName other = (ColumnName) obj;
 
-            return ObjectUtils.equals(tableName, other.tableName) &&
-                   ObjectUtils.equals(columnName, other.columnName);
+            return tableName.equals(other.tableName) &&
+                   columnName.equals(other.columnName);
         }
 
         return false;

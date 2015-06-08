@@ -1,11 +1,10 @@
-package edu.caltech.nanodb.storage.linhash;
+package edu.caltech.nanodb.storage.overflowfile;
 
+        import org.apache.log4j.Logger;
 
-import org.apache.log4j.Logger;
+        import edu.caltech.nanodb.storage.DBPage;
 
-import edu.caltech.nanodb.storage.DBPage;
-
-
+//TODO: Update this documentation
 /**
  * <p>
  * This class contains constants and basic functionality for accessing and
@@ -49,11 +48,6 @@ public class HeaderPage {
 
 
     /**
-     * The number of buckets in a level
-     */
-    public static final int N_BUCKETS = 3;
-
-    /**
      * The offset in the header page where the size of the table schema is
      * stored.  This value is an unsigned short.
      */
@@ -67,27 +61,15 @@ public class HeaderPage {
     public static final int OFFSET_STATS_SIZE = 4;
 
     /**
-     * The current level of the hashing function.
-     */
-    public static final int OFFSET_LEVEL = 6;
-
-
-    /**
-     * The pointer to the next bucket to be updated.
-     */
-    public static final int OFFSET_NEXT = 8;
-
-    /**
      * The offset in the header page where the size of the hash column
      * specification is stored.  This value is an unsigned short.
      */
-    public static final int OFFSET_HASH_COLUMNS_SIZE = 10;
-
+    public static final int OFFSET_HASH_COLUMNS_SIZE = 6;
     /**
      * The offset in the header page where the table schema starts.  This
      * value is an unsigned short.
      */
-    public static final int OFFSET_SCHEMA_START = 12;
+    public static final int OFFSET_SCHEMA_START = 8;
 
 
     /**
@@ -187,39 +169,9 @@ public class HeaderPage {
      */
     public static int getStatsOffset(DBPage dbPage) {
         verifyIsHeaderPage(dbPage);
-        return OFFSET_SCHEMA_START + getSchemaSize(dbPage);
+        return OFFSET_SCHEMA_START + getSchemaSize(dbPage) + getHashColumnsSize(dbPage);
     }
 
-    public static int getLevel(DBPage dbPage) {
-        verifyIsHeaderPage(dbPage);
-        return dbPage.readUnsignedShort(OFFSET_LEVEL);
-    }
-
-    public static void incLevel(DBPage dbPage) {
-        verifyIsHeaderPage(dbPage);
-        short old = (short) dbPage.readUnsignedShort(OFFSET_LEVEL);
-        dbPage.writeShort(OFFSET_LEVEL, old + 1);
-    }
-
-    public static short getLevelOffset(DBPage dbPage) {
-        verifyIsHeaderPage(dbPage);
-        return OFFSET_LEVEL;
-    }
-
-    public static int getNext(DBPage dbPage) {
-        verifyIsHeaderPage(dbPage);
-        return dbPage.readUnsignedShort(OFFSET_NEXT);
-    }
-
-    public static void setNext(DBPage dbPage, short val) {
-        verifyIsHeaderPage(dbPage);
-        dbPage.writeShort(OFFSET_NEXT, val);
-    }
-
-    public static short getNextOffset(DBPage dbPage) {
-        verifyIsHeaderPage(dbPage);
-        return OFFSET_NEXT;
-    }
 
     /**
      * Returns the number of bytes that the table's hash column spec occupies
@@ -265,10 +217,4 @@ public class HeaderPage {
         verifyIsHeaderPage(dbPage);
         return OFFSET_SCHEMA_START + getSchemaSize(dbPage);
     }
-
-    public static int getnBuckets(DBPage dbPage) {
-        verifyIsHeaderPage(dbPage);
-        return N_BUCKETS;
-    }
-
 }
