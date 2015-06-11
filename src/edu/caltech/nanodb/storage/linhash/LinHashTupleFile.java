@@ -33,29 +33,53 @@ import edu.caltech.nanodb.storage.HashedTupleFile;
 
 import edu.caltech.nanodb.expressions.TupleHasher;
 
+
+/**
+ * This class implements the HashedTupleFile interface for linear hash files. It provides a way
+ * to add, remove, update, and find tuples within a dbFile.
+ */
 public class LinHashTupleFile implements HashedTupleFile
 {
 
+    /** Logging object for reporting runtime data. */
     private static Logger logger = Logger.getLogger(LinHashTupleFile.class);
 
+    /** The initial number of storage buckets. Needs to match N_BUCKETS in linash.HeaderPage. */
     public static final int N_BUCKETS = 3;
 
+    /** The storage manager to use for reading and writing file pages, pinning and
+     * unpinning pages, etc.
+     */
     private StorageManager storageManager;
 
+    /** The manager for hash tuple files- used mainly to create and open tuple files. */
     private LinHashTupleFileManager linHashFileManager;
 
+    /** The schema of the tuple. */
     private TableSchema schema;
 
+    /** Statistics for the table. */
     private TableStats stats;
 
+    /** The main file that stores the tuples. */
     private DBFile dbFile;
 
+    /** A list of integers corresponding to the indices of the columns being hashed on. */
     private List<Integer> hashColumns;
 
+    /** The overflow file that stores extra tuples when a bucket overflows. */
     private DBFile overflowFile;
 
-    private boolean midSplit = false;
-
+    /**
+     * Constructor for a linear hashing tuple file.
+     * @param storageManager The storage manager.
+     * @param linHashFileManager The file manager.
+     * @param dbFile The main file where tuples are stored.
+     * @param schema The schema of the table.
+     * @param stats Statistics for the table.
+     * @param hashColumns A list of column indices for hashing.
+     * @param overflowFile The overflow file for storing overflow tuples.
+     */
     public LinHashTupleFile(StorageManager storageManager,
                               LinHashTupleFileManager linHashFileManager,
                               DBFile dbFile,
@@ -107,6 +131,10 @@ public class LinHashTupleFile implements HashedTupleFile
     public List<Integer> getHashColumns() { return hashColumns; }
 
 
+    /**
+     * Initializes the dbFile by creating a page for each initial bucket.
+     * @throws IOException
+     */
     public void initialize() throws IOException {
 
         // Create the initial bucket pages
@@ -117,7 +145,12 @@ public class LinHashTupleFile implements HashedTupleFile
         }
     }
 
-    @Override
+    /**
+     * Iterates through the pages of the file until it finds a tuple, then
+     * returns that tuple.
+     * @return The first tuple found by the search.
+     * @throws IOException
+     */
     public Tuple getFirstTuple() throws IOException {
         try {
             // Scan through the data pages until we hit the end of the table
@@ -156,7 +189,14 @@ public class LinHashTupleFile implements HashedTupleFile
         return null;
     }
 
-    @Override
+    /**
+     * Constructs a tuple from the page and offset specified by the file pointer.
+     * Returns this HashFilePageTuple.
+     * @param fptr The pointer specifying the location of the tuple.
+     * @return The tuple at the input location.
+     * @throws InvalidFilePointerException
+     * @throws IOException
+     */
     public Tuple getTuple(FilePointer fptr)
         throws InvalidFilePointerException, IOException {
 
@@ -194,7 +234,14 @@ public class LinHashTupleFile implements HashedTupleFile
         return new HashFilePageTuple(schema, dbPage, slot, offset);
     }
 
-    @Override
+    /**
+     * Given a tuple, finds the next tuple in the file. If the end of the file
+     * is reached without finding a tuple and that file was the main file, then
+     * the overflow file is loaded and the process is repeated.
+     * @param tup The previous tuple.
+     * @return The next tuple.
+     * @throws IOException
+     */
     public Tuple getNextTuple(Tuple tup) throws IOException {
         /* Procedure:
          *   1)  Get slot index of current tuple.
@@ -241,56 +288,34 @@ public class LinHashTupleFile implements HashedTupleFile
                 nextSlot = 0;
             }
             catch (EOFException e) {
-                // Hit the end of the file with no more tuples.  We are done
-                // scanning.
-                break;
-            }
-        }
-        /* Check the overflow file too if it is nonempty. */
-        if (currFile.toString().equals(dbFile.toString()) && overflowFile.getNumPages() > 1)
-        {
-            currFile = overflowFile;
-            dbPage = storageManager.loadDBPage(currFile, 1);
-            while (true) {
-                int numSlots = BucketPage.getNumSlots(dbPage);
-
-                while (nextSlot < numSlots) {
-                    int nextOffset = BucketPage.getSlotValue(dbPage, nextSlot);
-                    if (nextOffset != BucketPage.EMPTY_SLOT) {
-                        return new HashFilePageTuple(schema, dbPage, nextSlot,
-                                nextOffset);
-                    }
-
-                    nextSlot++;
-                }
-
-                // If we got here then we reached the end of this page with no
-                // tuples.  Go on to the next data-page, and start with the first
-                // tuple in that page.
-
-                try {
-                    DBPage nextDBPage =
-                            storageManager.loadDBPage(currFile, dbPage.getPageNo() + 1);
-                    dbPage.unpin();
-                    dbPage = nextDBPage;
-
+                // Hit the end of the file with no more tuples. If the file was the main file,
+                // then we can look in the overflow file for more tuples. Otherwise we are done
+                // searching and there are no more tuples.
+                if (currFile.toString().equals(dbFile.toString()) && overflowFile.getNumPages() > 1)
+                {
+                    currFile = overflowFile;
+                    dbPage = storageManager.loadDBPage(currFile, 1);
                     nextSlot = 0;
                 }
-                catch (EOFException e) {
-                    // Hit the end of the file with no more tuples.  We are done
-                    // scanning.
+                else
                     return null;
-                }
             }
         }
-        else
-            return null;
 
-        // It's pretty gross to have no return statement here, but there's
-        // no way to reach this point.
+        // "It's pretty gross to have no return statement here, but there's
+        // no way to reach this point." - Donnie
     }
 
-    @Override
+    /**
+     * Adds a tuple to the file. Hashes the appropriate columns of the tuple
+     * to get the hash key, then loads the page corresponding to that hash key
+     * and inserts the tuple into the page. If there is no room in the page,
+     * iterates through the overflow pages until space is found, creating
+     * another overflow page if necessary.
+     * @param tup The tuple to be added.
+     * @return The HashFilePageTuple containing the tuple details and location data.
+     * @throws IOException
+     */
     public Tuple addTuple(Tuple tup) throws IOException {
 
         int tupSize = PageTuple.getTupleStorageSize(schema, tup);
@@ -306,14 +331,16 @@ public class LinHashTupleFile implements HashedTupleFile
 
         // Hash the tuple to get its page number
         int pageNo = 1 + hashTuple(tup);
-        DBPage dbPage = storageManager.loadDBPage(dbFile, pageNo);
-        DBPage old = dbPage;
 
        /*
         * Keep iterating through the page and all its overflow pages until
         * space for the tuple is found. If all pages are full, create a new
         * one and link it to the previous overflow page.
         */
+
+        // Current page and previous page cursors
+        DBPage dbPage = storageManager.loadDBPage(dbFile, pageNo);
+        DBPage old = dbPage;
         while (true)
         {
             int freeSpace = BucketPage.getFreeSpaceInPage(dbPage);
@@ -365,6 +392,8 @@ public class LinHashTupleFile implements HashedTupleFile
 
         BucketPage.sanityCheck(dbPage);
 
+        // Once we finish adding the tuple, we perform a quick check to see if
+        // we need to split a bucket to stay below our capacity threshold.
         splitCheck();
 
         return pageTup;
@@ -373,12 +402,15 @@ public class LinHashTupleFile implements HashedTupleFile
     @Override
     public void updateTuple(Tuple tup, Map<String, Object> newValues)
         throws IOException {
-
         throw new UnsupportedOperationException("Not yet implemented!");
 
     }
 
-    @Override
+    /**
+     * Deletes the input tuple from the table.
+     * @param tup The tuple to be deleted.
+     * @throws IOException
+     */
     public void deleteTuple(Tuple tup) throws IOException {
         if (!(tup instanceof HashFilePageTuple)) {
             throw new IllegalArgumentException(
@@ -391,9 +423,16 @@ public class LinHashTupleFile implements HashedTupleFile
         storageManager.logDBPageWrite(dbPage);
 
         BucketPage.sanityCheck(dbPage);
-
     }
 
+    /**
+     * Finds the first tuple in the table that hashes to the same value as
+     * the input tuple. Hashes the tuple to get the page number, then loads
+     * that page and iterates through it (and overflow pages if necessary)
+     * @param hashKey The input tuple.
+     * @return The first tuple, or null if no such tuple exists.
+     * @throws IOException
+     */
     public Tuple findFirstTupleEquals(Tuple hashKey) throws IOException {
 
         int pageNo = hashTuple(hashKey);
@@ -416,7 +455,6 @@ public class LinHashTupleFile implements HashedTupleFile
                 return new HashFilePageTuple(schema, curr, iSlot, offset);
             }
 
-
             // Move to the next bucket page
             pageNo = BucketPage.getNextBucket(curr);
             if(pageNo == 0)
@@ -430,7 +468,15 @@ public class LinHashTupleFile implements HashedTupleFile
         return null;
     }
 
-
+    /**
+     * Given an input tuple, finds the next tuple in the table with the
+     * same hash value as the input tuple. Starts at the location specified
+     * by the tuple, then continues iterating through the page and all
+     * overflow pages until another tuple is found.
+     * @param tup The input tuple.
+     * @return The next tuple, or null if no such tuple exists.
+     * @throws IOException
+     */
     public Tuple findNextTupleEquals(Tuple tup) throws IOException {
                 /* Procedure:
          *   1)  Get slot index of current tuple.
@@ -448,10 +494,10 @@ public class LinHashTupleFile implements HashedTupleFile
         HashFilePageTuple ptup = (HashFilePageTuple) tup;
 
         DBPage curr = ptup.getDBPage();
-        DBPage test = storageManager.loadDBPage(dbFile, 1);
-
         int nextSlot = ptup.getSlot() + 1;
         int nextPage;
+
+        // Continues iterating through pages until it finds a tuple.
         while (true) {
             int numSlots = BucketPage.getNumSlots(curr);
 
@@ -462,7 +508,6 @@ public class LinHashTupleFile implements HashedTupleFile
                     return new HashFilePageTuple(schema, curr, nextSlot,
                             nextOffset);
                 }
-
                 nextSlot++;
             }
 
@@ -540,7 +585,7 @@ public class LinHashTupleFile implements HashedTupleFile
         // To calculate this we multiply the number of buckets/level by the current level
         int capacity = HeaderPage.getnBuckets(headerPage) * (1 << HeaderPage.getLevel(headerPage));
 
-        if (numPages > capacity && !midSplit)
+        if (numPages > capacity)
         {
             // a split is necessary
             splitBucket();
@@ -560,14 +605,7 @@ public class LinHashTupleFile implements HashedTupleFile
         DBPage newBucket = storageManager.loadDBPage(dbFile, newBucketNum + 1, true);
         BucketPage.initNewPage(newBucket);
 
-        /*
-        System.out.println("Bucket actually has this number of pages: " + dbFile.getNumPages());
-        System.out.println("Bucket should have this number of pages: " + newBucketNum);
-        System.out.println("level is: " + HeaderPage.getLevel(headerPage));
-        System.out.println("next is: " + HeaderPage.getNext(headerPage));
 
-        System.out.println("val is: " + (n * (1 << level) - 1));
-        */
         // Here, we need to increment the next variable, so that
         // when we re-add tuples they go into the new bucket
         if (next == n * (1 << level) - 1)
@@ -602,9 +640,7 @@ public class LinHashTupleFile implements HashedTupleFile
                     // we need to move the tuple to the new bucket
                     Tuple add = new TupleLiteral(tup);
                     deleteTuple(tup);
-                    midSplit = true;
                     addTuple(add);
-                    midSplit = false;
                 }
             }
             int nextBucket = BucketPage.getNextBucket(currPage);
