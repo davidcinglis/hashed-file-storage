@@ -15,6 +15,7 @@
       <class name="edu.caltech.test.nanodb.storage.TestFileManager" />
       <class name="edu.caltech.test.nanodb.storage.TestFilePointer" />
       <class name="edu.caltech.test.nanodb.storage.TestBucketPage" />
+      <class name="edu.caltech.test.nanodb.storage.linhash.TestLinearHashFormat" />
     </classes>
   </test>
 

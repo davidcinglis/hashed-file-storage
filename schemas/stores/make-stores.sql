@@ -1,7 +1,7 @@
 CREATE TABLE states (
   state_id   INTEGER,
   state_name VARCHAR(30)
-) PROPERTIES (storage='lin-hash', hashkey='0');
+);
 
 
 CREATE TABLE cities (
@@ -9,14 +9,14 @@ CREATE TABLE cities (
   city_name  VARCHAR(30),
   population INTEGER,
   state_id   INTEGER
-)  PROPERTIES (storage='lin-hash', hashkey='0,1');
+);
 
 
 CREATE TABLE stores (
   store_id       INTEGER,
   city_id        INTEGER,
   property_costs INTEGER
-)  PROPERTIES (storage='lin-hash', hashkey='0,1');
+);
 
 
 CREATE TABLE employees (
@@ -34,7 +34,7 @@ CREATE TABLE employees (
 
   -- The manager_id is another employee's emp_id value.
   manager_id INTEGER
-)  PROPERTIES (storage='lin-hash', hashkey='0');
+);
 
 
 QUIT;

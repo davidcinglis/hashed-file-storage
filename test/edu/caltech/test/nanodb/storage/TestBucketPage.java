@@ -101,6 +101,5 @@ public class TestBucketPage extends StorageTestCase {
         BucketPage.setSlotValue(dbPage, 1, 5000);
         assert BucketPage.getSlotValue(dbPage, 1) == 5000;
 
-        assert false;
     }
 }
