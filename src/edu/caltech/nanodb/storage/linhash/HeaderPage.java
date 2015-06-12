@@ -190,32 +190,61 @@ public class HeaderPage {
         return OFFSET_SCHEMA_START + getSchemaSize(dbPage);
     }
 
+    /**
+     * Accessor method for the level value.
+     * @param dbPage The page the value resides in.
+     * @return The level value.
+     */
     public static int getLevel(DBPage dbPage) {
         verifyIsHeaderPage(dbPage);
         return dbPage.readUnsignedShort(OFFSET_LEVEL);
     }
 
+    /**
+     * Mutator method, increments the level value.
+     * @param dbPage The page the value resides in
+     */
     public static void incLevel(DBPage dbPage) {
         verifyIsHeaderPage(dbPage);
         short old = (short) dbPage.readUnsignedShort(OFFSET_LEVEL);
         dbPage.writeShort(OFFSET_LEVEL, old + 1);
     }
 
+    /**
+     * Accessor method for the offset of the level value
+     * @param dbPage the page the value resides in
+     * @return the offset of the level value
+     */
     public static short getLevelOffset(DBPage dbPage) {
         verifyIsHeaderPage(dbPage);
         return OFFSET_LEVEL;
     }
 
+    /**
+     * Accessor method for the "next" value
+     * @param dbPage the page the value resides in
+     * @return the "next" value
+     */
     public static int getNext(DBPage dbPage) {
         verifyIsHeaderPage(dbPage);
         return dbPage.readUnsignedShort(OFFSET_NEXT);
     }
 
+    /**
+     * Mutator method for the "next" value
+     * @param dbPage the page the value resides in
+     * @param val the value to be written
+     */
     public static void setNext(DBPage dbPage, short val) {
         verifyIsHeaderPage(dbPage);
         dbPage.writeShort(OFFSET_NEXT, val);
     }
 
+    /**
+     * Accessor method for the offset of the "next" value
+     * @param dbPage
+     * @return the offset of the "next" value
+     */
     public static short getNextOffset(DBPage dbPage) {
         verifyIsHeaderPage(dbPage);
         return OFFSET_NEXT;
@@ -265,10 +294,4 @@ public class HeaderPage {
         verifyIsHeaderPage(dbPage);
         return OFFSET_SCHEMA_START + getSchemaSize(dbPage);
     }
-
-    public static int getnBuckets(DBPage dbPage) {
-        verifyIsHeaderPage(dbPage);
-        return N_BUCKETS;
-    }
-
 }

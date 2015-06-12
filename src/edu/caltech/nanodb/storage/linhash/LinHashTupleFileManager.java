@@ -33,6 +33,8 @@ public class LinHashTupleFileManager implements HashTupleFileManager {
         this.storageManager = storageManager;
     }
 
+    /** Because this class implements the HashTupleFileManager interface we must declare these methods
+     * even though we don't use them. */
     public TupleFile createTupleFile(DBFile dbFile, TableSchema schema)
             throws IOException{
         throw new IllegalArgumentException("Must specify hash key columns.");
@@ -43,6 +45,15 @@ public class LinHashTupleFileManager implements HashTupleFileManager {
         throw new IllegalArgumentException("Must specify overflow file.");
     }
 
+    /**
+     * Creates a linear hashing tuple file based on the input data.
+     * @param dbFile The input file.
+     * @param schema The input schema for the table.
+     * @param hashColumns The list of column indices to hash on.
+     * @param overflowFile THe overflow file.
+     * @return The newly constructed LinHashTupleFile
+     * @throws IOException
+     */
     public TupleFile createTupleFile(DBFile dbFile, TableSchema schema, List<Integer> hashColumns, DBFile overflowFile)
         throws IOException {
 

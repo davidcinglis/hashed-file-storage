@@ -500,7 +500,6 @@ public class LinHashTupleFile implements HashedTupleFile
         // Continues iterating through pages until it finds a tuple.
         while (true) {
             int numSlots = BucketPage.getNumSlots(curr);
-
             while (nextSlot < numSlots) {
                 int nextOffset = BucketPage.getSlotValue(curr, nextSlot);
 
@@ -557,19 +556,27 @@ public class LinHashTupleFile implements HashedTupleFile
         throw new UnsupportedOperationException("Not yet implemented!");
     }
 
-
+    /**
+     * Calculates a hash key by hashing the specified columns of
+     * an input tuple. Then mods that key by the number of buckets
+     * currently in storage. If the resulting bucket has already
+     * been split, then we hash on the next level since the tuple
+     * might belong to the split bucket instead of the original one.
+     * @param tup The tuple to be hashed.
+     * @return the integer hash key.
+     * @throws IOException
+     */
     public int hashTuple(Tuple tup) throws IOException {
         // load the header page
         DBPage dbPage = storageManager.loadDBPage(dbFile, 0);
-        int n = HeaderPage.getnBuckets(dbPage);
         int hash = Math.abs(TupleHasher.hashTuple(tup, hashColumns));
-        int hash0 = hash % (n * (1 << HeaderPage.getLevel(dbPage)));
+        int hash0 = hash % (N_BUCKETS * (1 << HeaderPage.getLevel(dbPage)));
 
         // check if the bucket has already been split
         if (hash0 < HeaderPage.getNext(dbPage))
         {
             // if the bucket has been split, we hash on the next level
-            hash %= (n * (1 << (1 + HeaderPage.getLevel(dbPage))));
+            hash %= (N_BUCKETS * (1 << (1 + HeaderPage.getLevel(dbPage))));
             return hash;
         }
 
@@ -577,29 +584,41 @@ public class LinHashTupleFile implements HashedTupleFile
         return hash0;
     }
 
+    /**
+     * Check if our bucket system has reached capacity and needs to be split.
+     * We define capacity as one overflow page for each bucket. If there are
+     * more overflow pages than buckets, we split one of the buckets.
+     * @throws IOException
+     */
     public void splitCheck() throws IOException {
         DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
         int numPages = overflowFile.getNumPages();
 
         // Our "capacity" sets an upper bound of 1 overflow page per bucket
         // To calculate this we multiply the number of buckets/level by the current level
-        int capacity = HeaderPage.getnBuckets(headerPage) * (1 << HeaderPage.getLevel(headerPage));
+        int capacity = N_BUCKETS * (1 << HeaderPage.getLevel(headerPage));
 
+        // Check if we are over capacity.
         if (numPages > capacity)
-        {
-            // a split is necessary
             splitBucket();
-        }
+
     }
 
+    /**
+     * Splits the bucket specified by the "next" value in the header page.
+     * Creates a new bucket, then rehashes the tuples in the old bucket to
+     * the two buckets. Updates the "next" and "level" values in the header
+     * page.
+     * @throws IOException
+     */
     public void splitBucket() throws IOException {
         DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
-        int n = HeaderPage.getnBuckets(headerPage);
+        int n = N_BUCKETS;
         int level = HeaderPage.getLevel(headerPage);
         int next = HeaderPage.getNext(headerPage);
 
         // Calculate the number of the new bucket
-        int newBucketNum = n * (1 << level) + next;
+        int newBucketNum = N_BUCKETS * (1 << level) + next;
 
         // Create that bucket
         DBPage newBucket = storageManager.loadDBPage(dbFile, newBucketNum + 1, true);
@@ -608,7 +627,7 @@ public class LinHashTupleFile implements HashedTupleFile
 
         // Here, we need to increment the next variable, so that
         // when we re-add tuples they go into the new bucket
-        if (next == n * (1 << level) - 1)
+        if (next == N_BUCKETS * (1 << level) - 1)
         {
             HeaderPage.setNext(headerPage, (short) 0);
             HeaderPage.incLevel(headerPage);
@@ -618,10 +637,13 @@ public class LinHashTupleFile implements HashedTupleFile
             HeaderPage.setNext(headerPage, ((short) (next + 1)));
         }
 
-        // Rehash all the tuples in the old bucket
+        // Iterate through the old bucket and all the overflow pages. For
+        // each tuple, delete the tuple and add a copy of it. The add function
+        // automatically determines which bucket the tuple should go into.
         DBPage currPage = storageManager.loadDBPage(dbFile, next + 1);
         while (true)
         {
+            // Iterate through each slot in the page, checking for tuples.
             int numSlots = BucketPage.getNumSlots(currPage);
             for (int i = 0; i < numSlots; i++)
             {
@@ -630,12 +652,11 @@ public class LinHashTupleFile implements HashedTupleFile
                 if (offset == BucketPage.EMPTY_SLOT)
                     continue;
 
+                // Check if splitting causes the tuple to hash to a different bucket
                 Tuple tup = new HashFilePageTuple(schema, currPage, i, offset);
-                int hash = TupleHasher.hashTuple(tup, hashColumns);
-
-                hash %= (1 << level + 1);
-
-                if (hash >= n)
+                int hash = Math.abs(TupleHasher.hashTuple(tup, hashColumns));
+                hash %= N_BUCKETS * (1 << (level + 1));
+                if (hash >= N_BUCKETS * (1 << level))
                 {
                     // we need to move the tuple to the new bucket
                     Tuple add = new TupleLiteral(tup);
@@ -643,10 +664,14 @@ public class LinHashTupleFile implements HashedTupleFile
                     addTuple(add);
                 }
             }
+            // Once we finish with one page, move to the next one
             int nextBucket = BucketPage.getNextBucket(currPage);
 
+            // If the next page is 0, we are out of pages, so we're done.
             if (nextBucket == 0)
                 break;
+
+            // Otherwise, we load the next page and repeat the process.
             else
                 currPage = storageManager.loadDBPage(overflowFile, nextBucket);
         }
