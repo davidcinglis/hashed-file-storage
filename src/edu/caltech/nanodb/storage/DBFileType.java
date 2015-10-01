@@ -37,6 +37,11 @@ public enum DBFileType {
      */
     LINEAR_HASH_FILE(4),
 
+    /**
+     * Represents an overflow file for storing overflow tuples.
+     */
+    OVERFLOW_FILE(5),
+
 
     /**
      * Represents a transaction-state file used for write-ahead logging and

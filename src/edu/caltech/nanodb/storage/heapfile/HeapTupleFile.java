@@ -4,6 +4,7 @@ package edu.caltech.nanodb.storage.heapfile;
 import java.io.EOFException;
 import java.io.IOException;
 
+import java.lang.IllegalArgumentException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +62,6 @@ public class HeapTupleFile implements TupleFile {
     /** The file that stores the tuples. */
     private DBFile dbFile;
 
-
     public HeapTupleFile(StorageManager storageManager,
                          HeapTupleFileManager heapFileManager, DBFile dbFile,
                          TableSchema schema, TableStats stats) {
@@ -108,6 +108,7 @@ public class HeapTupleFile implements TupleFile {
     public DBFile getDBFile() {
         return dbFile;
     }
+
 
 
     /**

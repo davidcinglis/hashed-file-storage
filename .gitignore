@@ -1,6 +1,8 @@
 build
 datafiles
 test_datafiles
+schemas/stores/.DS_Store
+schemas/stores/output/.DS_Store
 
 .idea
 
