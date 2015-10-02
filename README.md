@@ -1,1 +1,2 @@
-# nanodb-hash-storage
+### Hashed File Storage
+This project is for Caltech's CS123: Projects in Database Systems. My partner Daniel Wang and I implemented two forms of hashed file storage for nanoDB, an instructional database written in Java for Caltech's database courses. Daniel implemented extendable hashing, while I implemented linear hashing (this repository only contains my work). We saw about 8x performance improvement for equality-based comparision predicates when compared to heap storage, the default storage type for the database. A full report for our project can be seen [here](https://www.dropbox.com/s/gph8k4o4hf8lklq/hashing_storage_report.pdf?dl=0)
